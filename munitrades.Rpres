@@ -1,0 +1,90 @@
+munitrades
+========================================================
+author: Marc Joffe
+date: April 2, 2014
+
+Background
+========================================================
+
+- Municipal bonds are issued by state and local governments to finance infrastructure.
+- Typically, municipal bonds pay periodic interest. The annual interest rate is called the coupon.
+- On the maturity date, the face value of the municipal bond becomes due.
+- Before maturity, the bonds can be traded. Trade prices are expressed as a percentage of face value multiplied by 100.
+- If a bond is trading at face value - or par - its price is 100.
+
+The Data
+========================================================
+
+- A professor gave me a SAS file containing 97 million trade records including:
+    - Bond information: Bond identifiers, Maturity dates, Coupon rates
+    - Trade information: Trade size, Trade price
+- I converted the SAS file (with extension SAS7DB) to delimited text and imported to PostrgeSQL
+- I found that the vast majority of records were duplicates,
+     - A SELECT DISTINCT query in PostgreSQL, revealed only 1.1 million unique rows
+- I imported the unique rows to R using the package RPostgreSQL
+
+Loading the Data
+========================================================
+
+```{r, eval=FALSE}
+library(RPostgreSQL)
+drv <- dbDriver('PostgreSQL')
+con <- dbConnect(drv, dbname='msrb', user='postgres', password='********')
+munitrades <-dbReadTable(con,'munitrades_unique')
+
+```
+
+Price Distribution
+========================================================
+
+![Distribution](Price_Histogram.png)
+
+Nearly bell shaped curve with a mean of 97.58
+
+Determinants of Price
+========================================================
+
+```{r, eval=FALSE}
+# Calculate the days remaining before maturity as of the trade date
+munitrades$remaining_term <- as.numeric(munitrades$maturity_dt) - as.numeric(munitrades$tradedate_dt)
+
+regr <- lm(price_inter ~ coupon + remaining_term, data=munitrades, na.action=na.exclude)
+summary(regr)
+```
+<pre>
++----------------+-------------+-------------+---------+-----------+
+|  Coefficients  |  Estimate   | Std. Error  | t value |  Pr(>|t|) |
++----------------+-------------+-------------+---------+-----------+
+| (Intercept)    |  88.79      | 0.03132     | 2835.3  |  <2e-16   |
+| coupon         |   2.365     | 0.005088    |  464.8  |  <2e-16   |
+| remaining_term |  -0.0005129 | 0.000002334 | -219.7  |  <2e-16   |
++----------------+-------------+-------------+---------+-----------+
+
+Adjusted R-squared:  0.1742
+</pre>
+
+After **regr** runs, the **fitted** vector contains modeled prices
+
+
+Are Small Investors Getting a Bad Deal?
+========================================================
+
+- Strategy
+    - Find all securities which had at least 10 trades
+    - Break up the trades into two groups:
+        - Small trades (below the median trade size for that security)
+        - Large trades (above the median)
+    - Compare the variances of the trade prices for the small and large groups
+    
+- dplyR library facilitates this type of analysis by providing SQL and Excel pivot-table functionality in R
+
+Results
+========================================================
+
+![Distribution](variance_dist.png)
+
+Also: Paired t-test concludes with 95% confidence that the variances of the larger trades are lower than those of the smaller trades
+
+```{r, eval=FALSE}
+t.test(casted$abovemedian,casted$belowmedian,paired=TRUE)
+```
